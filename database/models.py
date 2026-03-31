@@ -430,6 +430,63 @@ class ZhihuComment(Base):
     add_ts = Column(BigInteger, comment='添加时间戳')
     last_modify_ts = Column(BigInteger, comment='最后修改时间戳')
 
+class TwitterTweet(Base):
+    __tablename__ = 'twitter_tweet'
+    id = Column(Integer, primary_key=True, comment='主键ID')
+    tweet_id = Column(String(255), index=True, unique=True, comment='推文ID')
+    text = Column(Text, comment='推文内容')
+    user_id = Column(String(255), index=True, comment='用户ID')
+    screen_name = Column(String(255), comment='用户名')
+    nickname = Column(Text, comment='显示名称')
+    avatar = Column(Text, comment='头像URL')
+    like_count = Column(Text, comment='点赞数')
+    retweet_count = Column(Text, comment='转推数')
+    reply_count = Column(Text, comment='回复数')
+    quote_count = Column(Text, comment='引用数')
+    bookmark_count = Column(Text, comment='书签数')
+    created_at = Column(Text, comment='创建时间')
+    lang = Column(String(16), comment='语言')
+    media_urls = Column(Text, comment='媒体URL列表')
+    tweet_url = Column(Text, comment='推文URL')
+    source_keyword = Column(Text, default='', comment='来源关键词')
+    add_ts = Column(BigInteger, comment='添加时间戳')
+    last_modify_ts = Column(BigInteger, comment='最后修改时间戳')
+
+class TwitterTweetComment(Base):
+    __tablename__ = 'twitter_tweet_comment'
+    id = Column(Integer, primary_key=True, comment='主键ID')
+    comment_id = Column(String(255), index=True, comment='评论ID(回复推文ID)')
+    tweet_id = Column(String(255), index=True, comment='原推文ID')
+    content = Column(Text, comment='评论内容')
+    user_id = Column(String(255), comment='用户ID')
+    screen_name = Column(String(255), comment='用户名')
+    nickname = Column(Text, comment='显示名称')
+    avatar = Column(Text, comment='头像URL')
+    like_count = Column(Text, default='0', comment='点赞数')
+    created_at = Column(Text, comment='创建时间')
+    parent_comment_id = Column(String(255), comment='父评论ID')
+    sub_comment_count = Column(Integer, default=0, comment='子评论数')
+    add_ts = Column(BigInteger, comment='添加时间戳')
+    last_modify_ts = Column(BigInteger, comment='最后修改时间戳')
+
+class TwitterCreator(Base):
+    __tablename__ = 'twitter_creator'
+    id = Column(Integer, primary_key=True, comment='主键ID')
+    user_id = Column(String(255), unique=True, index=True, comment='用户ID')
+    screen_name = Column(String(255), comment='用户名')
+    nickname = Column(Text, comment='显示名称')
+    avatar = Column(Text, comment='头像URL')
+    desc = Column(Text, comment='个人简介')
+    location = Column(Text, comment='所在地')
+    followers_count = Column(Text, comment='粉丝数')
+    following_count = Column(Text, comment='关注数')
+    tweet_count = Column(Text, comment='推文数')
+    listed_count = Column(Text, comment='列表数')
+    verified = Column(Integer, default=0, comment='是否认证')
+    created_at = Column(Text, comment='注册时间')
+    add_ts = Column(BigInteger, comment='添加时间戳')
+    last_modify_ts = Column(BigInteger, comment='最后修改时间戳')
+
 class ZhihuCreator(Base):
     __tablename__ = 'zhihu_creator'
     id = Column(Integer, primary_key=True, comment='主键ID')
