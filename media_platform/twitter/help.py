@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Dict, List, Optional
 
 from model.m_twitter import TweetUrlInfo, CreatorUrlInfo
@@ -33,7 +33,8 @@ def is_tweet_in_date_range(created_at: str, since_date: Optional[str] = None, un
     if not dt:
         return True  # 无法解析时不过滤
 
-    tweet_date = dt.date()
+    # 将UTC时间转换为本地时区再取日期
+    tweet_date = dt.astimezone().date()
 
     if since_date:
         since = datetime.strptime(since_date, "%Y-%m-%d").date()
@@ -54,7 +55,7 @@ def is_tweet_before_date(created_at: str, since_date: str) -> bool:
     if not dt:
         return False
     since = datetime.strptime(since_date, "%Y-%m-%d").date()
-    return dt.date() < since
+    return dt.astimezone().date() < since
 
 
 def parse_tweet_info_from_url(url: str) -> TweetUrlInfo:
