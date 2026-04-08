@@ -1,9 +1,60 @@
 # -*- coding: utf-8 -*-
 
 import re
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from model.m_twitter import TweetUrlInfo, CreatorUrlInfo
+
+
+def parse_tweet_created_at(created_at: str) -> Optional[datetime]:
+    """
+    解析X推文的created_at时间字符串
+    格式: "Sun Sep 21 17:17:54 +0000 2025"
+    """
+    try:
+        return datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+    except (ValueError, TypeError):
+        return None
+
+
+def is_tweet_in_date_range(created_at: str, since_date: Optional[str] = None, until_date: Optional[str] = None) -> bool:
+    """
+    判断推文是否在指定日期范围内
+    Args:
+        created_at: 推文的created_at字符串
+        since_date: 起始日期 (含)，格式 "YYYY-MM-DD"
+        until_date: 结束日期 (含)，格式 "YYYY-MM-DD"
+    """
+    if not since_date and not until_date:
+        return True
+
+    dt = parse_tweet_created_at(created_at)
+    if not dt:
+        return True  # 无法解析时不过滤
+
+    tweet_date = dt.date()
+
+    if since_date:
+        since = datetime.strptime(since_date, "%Y-%m-%d").date()
+        if tweet_date < since:
+            return False
+
+    if until_date:
+        until = datetime.strptime(until_date, "%Y-%m-%d").date()
+        if tweet_date > until:
+            return False
+
+    return True
+
+
+def is_tweet_before_date(created_at: str, since_date: str) -> bool:
+    """判断推文是否早于指定日期（用于提前停止爬取）"""
+    dt = parse_tweet_created_at(created_at)
+    if not dt:
+        return False
+    since = datetime.strptime(since_date, "%Y-%m-%d").date()
+    return dt.date() < since
 
 
 def parse_tweet_info_from_url(url: str) -> TweetUrlInfo:
@@ -66,7 +117,8 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
     """
     try:
         content = entry.get("content", {})
-        item_content = content.get("itemContent") or content.get("entryType") and content
+        # itemContent 可能直接在 content 下，也可能在 entry 本身
+        item_content = content.get("itemContent") or entry.get("itemContent")
         if not item_content:
             return None
 
@@ -81,17 +133,22 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
             return None
 
         legacy = result.get("legacy", {})
-        core = result.get("core", {})
-        user_results = core.get("user_results", {}).get("result", {})
+        tweet_core = result.get("core", {})
+        user_results = tweet_core.get("user_results", {}).get("result", {})
         user_legacy = user_results.get("legacy", {})
+        user_core = user_results.get("core", {})
+        user_avatar = user_results.get("avatar", {})
+
+        screen_name = user_core.get("screen_name", "") or user_legacy.get("screen_name", "")
+        tweet_id = legacy.get("id_str") or result.get("rest_id", "")
 
         return {
-            "tweet_id": legacy.get("id_str") or result.get("rest_id", ""),
+            "tweet_id": tweet_id,
             "text": legacy.get("full_text", ""),
-            "user_id": user_legacy.get("id_str") or user_results.get("rest_id", ""),
-            "screen_name": user_legacy.get("screen_name", ""),
-            "nickname": user_legacy.get("name", ""),
-            "avatar": user_legacy.get("profile_image_url_https", ""),
+            "user_id": user_results.get("rest_id", ""),
+            "screen_name": screen_name,
+            "nickname": user_core.get("name", "") or user_legacy.get("name", ""),
+            "avatar": user_avatar.get("image_url", "") or user_legacy.get("profile_image_url_https", ""),
             "like_count": legacy.get("favorite_count", 0),
             "retweet_count": legacy.get("retweet_count", 0),
             "reply_count": legacy.get("reply_count", 0),
@@ -100,7 +157,7 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
             "created_at": legacy.get("created_at", ""),
             "lang": legacy.get("lang", ""),
             "media_urls": _extract_media_urls(legacy),
-            "tweet_url": f"https://x.com/{user_legacy.get('screen_name', '')}/status/{legacy.get('id_str') or result.get('rest_id', '')}",
+            "tweet_url": f"https://x.com/{screen_name}/status/{tweet_id}",
         }
     except (KeyError, TypeError, AttributeError):
         return None
@@ -109,22 +166,32 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
 def extract_user_from_result(user_result: Dict) -> Optional[Dict]:
     """
     从X GraphQL API返回的用户结构中提取用户信息
+    实际结构:
+      - screen_name, name, created_at 在 user_result["core"] 中
+      - avatar 在 user_result["avatar"]["image_url"] 中
+      - location 在 user_result["location"]["location"] 中
+      - followers_count 等统计数据在 user_result["legacy"] 中
     """
     try:
         legacy = user_result.get("legacy", {})
+        core = user_result.get("core", {})
+        avatar_obj = user_result.get("avatar", {})
+        location_obj = user_result.get("location", {})
+        profile_bio = user_result.get("profile_bio", {})
+
         return {
             "user_id": user_result.get("rest_id", ""),
-            "screen_name": legacy.get("screen_name", ""),
-            "nickname": legacy.get("name", ""),
-            "avatar": legacy.get("profile_image_url_https", ""),
-            "desc": legacy.get("description", ""),
-            "location": legacy.get("location", ""),
+            "screen_name": core.get("screen_name", "") or legacy.get("screen_name", ""),
+            "nickname": core.get("name", "") or legacy.get("name", ""),
+            "avatar": avatar_obj.get("image_url", "") or legacy.get("profile_image_url_https", ""),
+            "desc": profile_bio.get("description", "") or legacy.get("description", ""),
+            "location": location_obj.get("location", "") or legacy.get("location", ""),
             "followers_count": legacy.get("followers_count", 0),
             "following_count": legacy.get("friends_count", 0),
             "tweet_count": legacy.get("statuses_count", 0),
             "listed_count": legacy.get("listed_count", 0),
             "verified": user_result.get("is_blue_verified", False),
-            "created_at": legacy.get("created_at", ""),
+            "created_at": core.get("created_at", "") or legacy.get("created_at", ""),
         }
     except (KeyError, TypeError, AttributeError):
         return None

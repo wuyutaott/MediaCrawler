@@ -54,7 +54,7 @@ async def update_twitter_tweet(tweet_item: Dict):
         "source_keyword": source_keyword_var.get(),
         "last_modify_ts": utils.get_current_timestamp(),
     }
-    utils.logger.info(f"[store.twitter.update_twitter_tweet] twitter tweet: {local_db_item}")
+    utils.logger.debug(f"[store.twitter.update_twitter_tweet] twitter tweet: {local_db_item}")
     await TwitterStoreFactory.create_store().store_content(local_db_item)
 
 
@@ -86,7 +86,7 @@ async def update_twitter_tweet_comment(tweet_id: str, comment_item: Dict):
         "sub_comment_count": comment_item.get("reply_count", 0),
         "last_modify_ts": utils.get_current_timestamp(),
     }
-    utils.logger.info(f"[store.twitter.update_twitter_tweet_comment] twitter comment: {local_db_item}")
+    utils.logger.debug(f"[store.twitter.update_twitter_tweet_comment] twitter comment: {local_db_item}")
     await TwitterStoreFactory.create_store().store_comment(local_db_item)
 
 
@@ -109,5 +109,5 @@ async def save_creator(user_id: str, creator: Dict):
         "created_at": creator.get("created_at", ""),
         "last_modify_ts": utils.get_current_timestamp(),
     }
-    utils.logger.info(f"[store.twitter.save_creator] creator: {local_db_item}")
+    utils.logger.debug(f"[store.twitter.save_creator] creator: {local_db_item}")
     await TwitterStoreFactory.create_store().store_creator(local_db_item)

@@ -2,8 +2,9 @@
 
 import asyncio
 import os
-import random
+import time
 from asyncio import Task
+from datetime import date
 from typing import Dict, List, Optional
 
 from playwright.async_api import (
@@ -42,8 +43,13 @@ class TwitterCrawler(AbstractCrawler):
         self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         self.cdp_manager = None
         self.ip_proxy_pool = None
+        # 进度统计
+        self._tweets_count = 0
+        self._comments_count = 0
+        self._start_time = 0.0
 
     async def start(self) -> None:
+        self._start_time = time.time()
         playwright_proxy_format, httpx_proxy_format = None, None
         if config.ENABLE_IP_PROXY:
             self.ip_proxy_pool = await create_ip_pool(config.IP_PROXY_POOL_COUNT, enable_validate_ip=True)
@@ -76,6 +82,10 @@ class TwitterCrawler(AbstractCrawler):
 
             # 创建API客户端
             self.twitter_client = await self.create_twitter_client(httpx_proxy_format)
+
+            # 从浏览器JS中动态发现GraphQL端点ID
+            await self.twitter_client.discover_graphql_endpoints()
+
             if not await self.twitter_client.pong():
                 login_obj = TwitterLogin(
                     login_type=config.LOGIN_TYPE,
@@ -86,6 +96,8 @@ class TwitterCrawler(AbstractCrawler):
                 )
                 await login_obj.begin()
                 await self.twitter_client.update_cookies(browser_context=self.browser_context)
+                # 登录后重新发现端点（页面JS可能已更新）
+                await self.twitter_client.discover_graphql_endpoints()
 
             crawler_type_var.set(config.CRAWLER_TYPE)
             if config.CRAWLER_TYPE == "search":
@@ -95,21 +107,19 @@ class TwitterCrawler(AbstractCrawler):
             elif config.CRAWLER_TYPE == "creator":
                 await self.get_creators_and_tweets()
 
-            utils.logger.info("[TwitterCrawler.start] Twitter Crawler 完成 ...")
+            utils.logger.info(f"[TwitterCrawler] 完成! 推文: {self._tweets_count}, 评论: {self._comments_count}, 总耗时: {self._elapsed()}")
 
     async def search(self) -> None:
         """搜索推文并获取评论"""
-        utils.logger.info("[TwitterCrawler.search] 开始搜索X平台关键词")
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
-            utils.logger.info(f"[TwitterCrawler.search] 当前搜索关键词: {keyword}")
+            utils.logger.info(f"[TwitterCrawler] 搜索关键词: {keyword}")
             cursor = ""
             tweets_collected = 0
             sort_type = SearchSortType(config.TWITTER_SORT_TYPE) if config.TWITTER_SORT_TYPE else SearchSortType.TOP
 
             while tweets_collected < config.CRAWLER_MAX_NOTES_COUNT:
                 try:
-                    utils.logger.info(f"[TwitterCrawler.search] 搜索关键词: {keyword}, 已收集: {tweets_collected}")
                     tweets_res = await self.twitter_client.search_tweets(
                         keyword=keyword,
                         cursor=cursor,
@@ -117,7 +127,6 @@ class TwitterCrawler(AbstractCrawler):
                     )
 
                     if not tweets_res or not tweets_res.get("tweets"):
-                        utils.logger.info("[TwitterCrawler.search] 没有更多内容!")
                         break
 
                     tweet_ids = []
@@ -135,7 +144,7 @@ class TwitterCrawler(AbstractCrawler):
                             tweet_ids.append(tweet_detail.get("tweet_id"))
 
                     tweets_collected += len(tweet_ids)
-                    utils.logger.info(f"[TwitterCrawler.search] 推文详情: 获取 {len(tweet_ids)} 条")
+                    self._log_progress(f"搜索 \"{keyword}\"")
                     await self.batch_get_tweet_comments(tweet_ids)
 
                     if not tweets_res.get("has_more"):
@@ -145,7 +154,7 @@ class TwitterCrawler(AbstractCrawler):
                     await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
 
                 except DataFetchError as e:
-                    utils.logger.error(f"[TwitterCrawler.search] 获取推文详情错误: {e}")
+                    utils.logger.error(f"[TwitterCrawler] 搜索错误: {e}")
                     break
 
     async def get_specified_tweets(self):
@@ -170,32 +179,36 @@ class TwitterCrawler(AbstractCrawler):
 
     async def get_creators_and_tweets(self) -> None:
         """获取创作者信息及其推文和评论"""
-        utils.logger.info("[TwitterCrawler.get_creators_and_tweets] 开始获取X平台创作者信息")
         for creator_url in config.TWITTER_CREATOR_ID_LIST:
             try:
                 creator_info: CreatorUrlInfo = parse_creator_info_from_url(creator_url)
-                utils.logger.info(f"[TwitterCrawler.get_creators_and_tweets] 解析创作者URL: {creator_info}")
                 screen_name = creator_info.screen_name
+                utils.logger.info(f"[TwitterCrawler] 开始采集创作者: @{screen_name}")
 
-                # 获取用户资料
                 user_profile = await self.twitter_client.get_user_profile(screen_name=screen_name)
                 if user_profile:
                     await twitter_store.save_creator(user_profile.get("user_id", ""), creator=user_profile)
                     user_id = user_profile.get("user_id", "")
+                    utils.logger.info(f"[TwitterCrawler] 创作者: @{screen_name} ({user_profile.get('nickname', '')}), 粉丝: {user_profile.get('followers_count', 0)}")
                 else:
-                    utils.logger.error(f"[TwitterCrawler.get_creators_and_tweets] 无法获取用户资料: {screen_name}")
+                    utils.logger.error(f"[TwitterCrawler] 无法获取用户资料: @{screen_name}")
                     continue
 
             except ValueError as e:
-                utils.logger.error(f"[TwitterCrawler.get_creators_and_tweets] 解析创作者URL失败: {e}")
+                utils.logger.error(f"[TwitterCrawler] 解析创作者URL失败: {e}")
                 continue
 
             crawl_interval = config.CRAWLER_MAX_SLEEP_SEC
+            since_date, until_date = self._resolve_date_filters()
             all_tweets = await self.twitter_client.get_all_tweets_by_creator(
                 user_id=user_id,
                 crawl_interval=crawl_interval,
                 callback=self.fetch_creator_tweets_detail,
+                since_date=since_date,
+                until_date=until_date,
             )
+
+            self._log_progress("推文采集完成")
 
             tweet_ids = [tweet.get("tweet_id") for tweet in all_tweets if tweet.get("tweet_id")]
             await self.batch_get_tweet_comments(tweet_ids)
@@ -221,35 +234,33 @@ class TwitterCrawler(AbstractCrawler):
         semaphore: asyncio.Semaphore,
     ) -> Optional[Dict]:
         """获取推文详情"""
-        tweet_detail = None
-        utils.logger.info(f"[TwitterCrawler.get_tweet_detail_async_task] 开始获取推文详情, tweet_id: {tweet_id}")
         async with semaphore:
             try:
                 tweet_detail = await self.twitter_client.get_tweet_by_id(tweet_id)
                 if not tweet_detail:
-                    utils.logger.warning(f"[TwitterCrawler.get_tweet_detail_async_task] 推文不存在: {tweet_id}")
+                    utils.logger.debug(f"[TwitterCrawler] 推文不存在: {tweet_id}")
                     return None
 
+                self._tweets_count += 1
                 await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                 return tweet_detail
 
-            except TweetNotFoundError as ex:
-                utils.logger.warning(f"[TwitterCrawler.get_tweet_detail_async_task] 推文未找到: {tweet_id}, {ex}")
+            except TweetNotFoundError:
+                utils.logger.debug(f"[TwitterCrawler] 推文未找到: {tweet_id}")
                 return None
             except DataFetchError as ex:
-                utils.logger.error(f"[TwitterCrawler.get_tweet_detail_async_task] 获取推文详情错误: {ex}")
+                utils.logger.error(f"[TwitterCrawler] 获取推文详情错误: {ex}")
                 return None
             except KeyError as ex:
-                utils.logger.error(f"[TwitterCrawler.get_tweet_detail_async_task] 推文详情解析错误 tweet_id:{tweet_id}, err: {ex}")
+                utils.logger.error(f"[TwitterCrawler] 推文解析错误 {tweet_id}: {ex}")
                 return None
 
     async def batch_get_tweet_comments(self, tweet_ids: List[str]):
         """批量获取推文评论"""
         if not config.ENABLE_GET_COMMENTS:
-            utils.logger.info("[TwitterCrawler.batch_get_tweet_comments] 评论抓取模式未开启")
             return
 
-        utils.logger.info(f"[TwitterCrawler.batch_get_tweet_comments] 开始批量获取推文评论, 推文列表: {tweet_ids}")
+        utils.logger.info(f"[TwitterCrawler] 开始获取 {len(tweet_ids)} 条推文的评论 ...")
         semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
         task_list: List[Task] = []
         for tweet_id in tweet_ids:
@@ -259,19 +270,23 @@ class TwitterCrawler(AbstractCrawler):
             )
             task_list.append(task)
         await asyncio.gather(*task_list)
+        self._log_progress("评论采集完成")
+
+    async def _count_and_store_comments(self, tweet_id: str, comments: List[Dict]):
+        """评论存储回调，同时统计数量"""
+        self._comments_count += len(comments)
+        await twitter_store.batch_update_twitter_tweet_comments(tweet_id, comments)
 
     async def get_comments(self, tweet_id: str, semaphore: asyncio.Semaphore):
         """获取推文评论"""
         async with semaphore:
-            utils.logger.info(f"[TwitterCrawler.get_comments] 开始获取推文评论 {tweet_id}")
             crawl_interval = config.CRAWLER_MAX_SLEEP_SEC
             await self.twitter_client.get_all_tweet_comments(
                 tweet_id=tweet_id,
                 crawl_interval=crawl_interval,
-                callback=twitter_store.batch_update_twitter_tweet_comments,
+                callback=self._count_and_store_comments,
                 max_count=config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
             )
-
             await asyncio.sleep(crawl_interval)
 
     async def create_twitter_client(self, httpx_proxy: Optional[str]) -> TwitterClient:
@@ -354,6 +369,37 @@ class TwitterCrawler(AbstractCrawler):
             utils.logger.error(f"[TwitterCrawler] CDP模式启动失败，回退到标准模式: {e}")
             chromium = playwright.chromium
             return await self.launch_browser(chromium, playwright_proxy, user_agent, headless)
+
+    def _elapsed(self) -> str:
+        """返回已运行时间，格式 HH:MM:SS"""
+        secs = int(time.time() - self._start_time)
+        h, remainder = divmod(secs, 3600)
+        m, s = divmod(remainder, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+
+    def _log_progress(self, phase: str = ""):
+        """输出当前进度"""
+        msg = f"[进度] 已采集推文: {self._tweets_count}, 评论: {self._comments_count}, 耗时: {self._elapsed()}"
+        if phase:
+            msg = f"[进度] {phase} | 已采集推文: {self._tweets_count}, 评论: {self._comments_count}, 耗时: {self._elapsed()}"
+        utils.logger.info(msg)
+
+    @staticmethod
+    def _resolve_date_filters():
+        """解析日期过滤配置，支持 "today" 关键字"""
+        today_str = date.today().strftime("%Y-%m-%d")
+        since_date = getattr(config, "TWITTER_SINCE_DATE", "") or ""
+        until_date = getattr(config, "TWITTER_UNTIL_DATE", "") or ""
+
+        if since_date.lower() == "today":
+            since_date = today_str
+        if until_date.lower() == "today":
+            until_date = today_str
+
+        if since_date:
+            utils.logger.info(f"[TwitterCrawler] 日期过滤: since={since_date}, until={until_date or '不限'}")
+
+        return since_date or None, until_date or None
 
     async def close(self):
         """关闭浏览器上下文"""

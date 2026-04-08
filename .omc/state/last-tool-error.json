@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/stone/.claude/projects/-Users-stone-Documents-ai-proj-MediaCrawler/ff5dc076-8114-4eb7-bb35-b2a50a92e391/tool-results/bj6g6dkak.txt\"}",
+  "error": "File content (12943 tokens) exceeds maximum allowed tokens (10000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-04-08T03:38:44.731Z",
+  "retry_count": 1
+}

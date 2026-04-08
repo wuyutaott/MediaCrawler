@@ -260,6 +260,14 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 rich_help_panel="Comment Configuration",
             ),
         ] = config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
+        max_notes_count: Annotated[
+            int,
+            typer.Option(
+                "--max_notes_count",
+                help="Maximum number of posts/tweets to crawl",
+                rich_help_panel="Basic Configuration",
+            ),
+        ] = config.CRAWLER_MAX_NOTES_COUNT,
         max_concurrency_num: Annotated[
             int,
             typer.Option(
@@ -301,6 +309,22 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 rich_help_panel="Proxy Configuration",
             ),
         ] = config.IP_PROXY_PROVIDER_NAME,
+        since_date: Annotated[
+            str,
+            typer.Option(
+                "--since_date",
+                help="Filter tweets since date (inclusive), format: YYYY-MM-DD or 'today'",
+                rich_help_panel="Date Filter",
+            ),
+        ] = getattr(config, "TWITTER_SINCE_DATE", ""),
+        until_date: Annotated[
+            str,
+            typer.Option(
+                "--until_date",
+                help="Filter tweets until date (inclusive), format: YYYY-MM-DD or 'today'",
+                rich_help_panel="Date Filter",
+            ),
+        ] = getattr(config, "TWITTER_UNTIL_DATE", ""),
     ) -> SimpleNamespace:
         """MediaCrawler 命令行入口"""
 
@@ -326,12 +350,19 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
         config.CDP_HEADLESS = enable_headless
         config.SAVE_DATA_OPTION = save_data_option.value
         config.COOKIES = cookies
+        config.CRAWLER_MAX_NOTES_COUNT = max_notes_count
         config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_count_singlenotes
         config.MAX_CONCURRENCY_NUM = max_concurrency_num
         config.SAVE_DATA_PATH = save_data_path
         config.ENABLE_IP_PROXY = enable_ip_proxy_value
         config.IP_PROXY_POOL_COUNT = ip_proxy_pool_count
         config.IP_PROXY_PROVIDER_NAME = ip_proxy_provider_name
+
+        # Date filter (currently for Twitter platform)
+        if since_date:
+            config.TWITTER_SINCE_DATE = since_date
+        if until_date:
+            config.TWITTER_UNTIL_DATE = until_date
 
         # Set platform-specific ID lists for detail/creator mode
         if specified_id_list:
