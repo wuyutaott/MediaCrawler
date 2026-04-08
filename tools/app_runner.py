@@ -92,10 +92,17 @@ def run(
             signal.signal(signal.SIGTERM, lambda signum, _frame: _on_signal(signum))
 
         cancelled = False
+        exit_code = 0
         try:
             await app_main()
         except asyncio.CancelledError:
             cancelled = True
+            exit_code = force_exit_code
+        except SystemExit as e:
+            exit_code = e.code if isinstance(e.code, int) else 1
+        except Exception as e:
+            print(f"[Main] Error: {e}")
+            exit_code = 1
         finally:
             try:
                 await _cleanup_with_timeout()
@@ -103,7 +110,9 @@ def run(
                 print(f"[Main] Error during cleanup: {e}")
             await _cancel_remaining_tasks()
 
-        if cancelled:
-            return
+        raise SystemExit(exit_code)
 
-    asyncio.run(_runner())
+    try:
+        asyncio.run(_runner())
+    except SystemExit as e:
+        raise SystemExit(e.code)
