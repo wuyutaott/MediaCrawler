@@ -52,6 +52,11 @@ async def update_twitter_tweet(tweet_item: Dict):
         "media_urls": ",".join(tweet_item.get("media_urls", [])),
         "tweet_url": tweet_item.get("tweet_url", f"https://x.com/{tweet_item.get('screen_name', '')}/status/{tweet_id}"),
         "source_keyword": source_keyword_var.get(),
+        "reply_policy": tweet_item.get("reply_policy", ""),
+        "quoted_tweet_id": tweet_item.get("quoted_tweet_id", ""),
+        "quoted_tweet_text": tweet_item.get("quoted_tweet_text", ""),
+        "quoted_tweet_screen_name": tweet_item.get("quoted_tweet_screen_name", ""),
+        "quoted_tweet_url": tweet_item.get("quoted_tweet_url", ""),
         "last_modify_ts": utils.get_current_timestamp(),
     }
     utils.logger.debug(f"[store.twitter.update_twitter_tweet] twitter tweet: {local_db_item}")

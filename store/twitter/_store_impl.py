@@ -96,6 +96,11 @@ class TwitterDbStoreImplement(AbstractStore):
             media_urls=content_item.get("media_urls"),
             tweet_url=content_item.get("tweet_url"),
             source_keyword=content_item.get("source_keyword", ""),
+            reply_policy=content_item.get("reply_policy", ""),
+            quoted_tweet_id=content_item.get("quoted_tweet_id", ""),
+            quoted_tweet_text=content_item.get("quoted_tweet_text", ""),
+            quoted_tweet_screen_name=content_item.get("quoted_tweet_screen_name", ""),
+            quoted_tweet_url=content_item.get("quoted_tweet_url", ""),
             add_ts=add_ts,
             last_modify_ts=last_modify_ts,
         )

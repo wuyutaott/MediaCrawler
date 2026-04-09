@@ -449,6 +449,11 @@ class TwitterTweet(Base):
     media_urls = Column(Text, comment='媒体URL列表')
     tweet_url = Column(Text, comment='推文URL')
     source_keyword = Column(Text, default='', comment='来源关键词')
+    reply_policy = Column(String(64), default='', comment='回复权限策略')
+    quoted_tweet_id = Column(String(255), default='', comment='引用推文ID')
+    quoted_tweet_text = Column(Text, default='', comment='引用推文内容')
+    quoted_tweet_screen_name = Column(String(255), default='', comment='引用推文作者')
+    quoted_tweet_url = Column(Text, default='', comment='引用推文URL')
     add_ts = Column(BigInteger, comment='添加时间戳')
     last_modify_ts = Column(BigInteger, comment='最后修改时间戳')
 

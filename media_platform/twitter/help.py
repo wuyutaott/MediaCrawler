@@ -143,6 +143,13 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
         screen_name = user_core.get("screen_name", "") or user_legacy.get("screen_name", "")
         tweet_id = legacy.get("id_str") or result.get("rest_id", "")
 
+        # 提取引用推文信息
+        quoted = _extract_quoted_tweet(result)
+
+        # 提取回复权限: community/followers/following/mentioned_users 或空(所有人可回复)
+        conversation_control = legacy.get("conversation_control", {})
+        reply_policy = conversation_control.get("policy", "") if conversation_control else ""
+
         return {
             "tweet_id": tweet_id,
             "text": legacy.get("full_text", ""),
@@ -159,6 +166,8 @@ def extract_tweet_from_result(entry: Dict) -> Optional[Dict]:
             "lang": legacy.get("lang", ""),
             "media_urls": _extract_media_urls(legacy),
             "tweet_url": f"https://x.com/{screen_name}/status/{tweet_id}",
+            "reply_policy": reply_policy,
+            **quoted,
         }
     except (KeyError, TypeError, AttributeError):
         return None
@@ -196,6 +205,44 @@ def extract_user_from_result(user_result: Dict) -> Optional[Dict]:
         }
     except (KeyError, TypeError, AttributeError):
         return None
+
+
+def _extract_quoted_tweet(result: Dict) -> Dict:
+    """从推文result中提取被引用推文的信息"""
+    empty = {
+        "quoted_tweet_id": "",
+        "quoted_tweet_text": "",
+        "quoted_tweet_screen_name": "",
+        "quoted_tweet_url": "",
+    }
+    try:
+        quoted_result = result.get("quoted_status_result", {}).get("result", {})
+        if not quoted_result:
+            return empty
+
+        if quoted_result.get("__typename") == "TweetWithVisibilityResults":
+            quoted_result = quoted_result.get("tweet", {})
+
+        if not quoted_result or quoted_result.get("__typename") not in ("Tweet", None):
+            return empty
+
+        q_legacy = quoted_result.get("legacy", {})
+        q_core = quoted_result.get("core", {})
+        q_user = q_core.get("user_results", {}).get("result", {})
+        q_user_core = q_user.get("core", {})
+        q_user_legacy = q_user.get("legacy", {})
+
+        q_screen_name = q_user_core.get("screen_name", "") or q_user_legacy.get("screen_name", "")
+        q_tweet_id = q_legacy.get("id_str") or quoted_result.get("rest_id", "")
+
+        return {
+            "quoted_tweet_id": q_tweet_id,
+            "quoted_tweet_text": q_legacy.get("full_text", ""),
+            "quoted_tweet_screen_name": q_screen_name,
+            "quoted_tweet_url": f"https://x.com/{q_screen_name}/status/{q_tweet_id}" if q_tweet_id else "",
+        }
+    except (KeyError, TypeError, AttributeError):
+        return empty
 
 
 def _extract_media_urls(legacy: Dict) -> List[str]:
